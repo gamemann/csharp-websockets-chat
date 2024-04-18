@@ -57,7 +57,7 @@ namespace Program {
         private static void ProcessClientMsg(Client cl, string msg) {
             var idx = GetClientIndex(cl);
 
-            if (curIndex == idx && !isServer)
+            if (curIndex == idx && !isServer && msg != "")
                 Console.Write($"\nServer: {msg}\nMsg: ");
         }
 
@@ -72,6 +72,12 @@ namespace Program {
         private static async void ClientProcess(Client cl) {
             while (true) {
                 try {
+                    if (cl.Ws.State != WebSocketState.Open) {
+                        Console.WriteLine($"Found client connection to '{cl.Server.host}:{cl.Server.port}' closed. Aborting processing...");
+
+                        break;
+                    }
+
                     var msg = await cl.Recv();
 
                     ProcessClientMsg(cl, msg);
@@ -158,6 +164,8 @@ namespace Program {
                         Console.WriteLine(e);
                     }
                 }
+
+                Console.WriteLine($"Removing client connection to '{cl.Server.host}:{cl.Server.port}'...");
 
                 // Remove from clients list.
                 clients.RemoveAt(idx);
@@ -419,6 +427,10 @@ namespace Program {
                         continue;
 
                     try {
+                        // Create a cancellation token.
+                        var tokenSource2 = new CancellationTokenSource();
+                        CancellationToken ct = tokenSource2.Token;
+                        
                         cl.Task = Task.Factory.StartNew(() => ClientProcess(cl));
                     } catch (Exception e) {
                         Console.WriteLine($"Failed to process client '{cl.Server.host}:{cl.Server.port}' due to exception.");

@@ -41,7 +41,7 @@ namespace Program.Comm {
 
         public async Task Send(string msg) {
             if (ws.State != WebSocketState.Open)
-                throw new Exception("Failed to send message from client. Web socket state is not open.");
+                throw new Exception("Failed to send message to server. Web socket state is not open.");
 
             var buffer = Encoding.UTF8.GetBytes(msg);
 
@@ -50,7 +50,7 @@ namespace Program.Comm {
 
         public async Task<string> Recv() {
             if (ws.State != WebSocketState.Open)
-                throw new Exception("Failed to send receive message from client. Web socket state is not open.");
+                throw new Exception("Failed to send receive message from server. Web socket state is not open.");
 
             var recvBuffer = new byte[2048];
 
