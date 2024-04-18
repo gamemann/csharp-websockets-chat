@@ -1,4 +1,4 @@
-This is a small project that utilizes CSharp and the [.NET library](https://dotnet.microsoft.com/en-us/learn/dotnet/what-is-dotnet) (7.0). This program allows you to establish multiple web sockets at once (client -> server and server -> client both supported). This is intended to run on Linux-based operating systems that support .NET 7.0 (e.g. using the `dotnet` package). This project should work with .NET 8.0 as well, but I haven't tested it.
+This is a small project that utilizes CSharp and the [.NET library](https://dotnet.microsoft.com/en-us/learn/dotnet/what-is-dotnet) (7.0). This program allows you to establish multiple web sockets at once (client -> server and server -> client both supported). This is intended to run on Linux-based operating systems that support .NET 7.0 (e.g. using the `dotnet` package). It is possible this works with Windows, but I haven't tried testing it. This project should also work with .NET 8.0, but I haven't tested that as well.
 
 This program operates as a very simple one-on-one chat room. When connected, the client and server can exchange basic UTF-8 text messages with each other.
 
@@ -105,6 +105,7 @@ When connected to a chat session via the `cc` and `cs` commands, you can send th
 ## Notes
 * This project is still a work in progress. I have not yet tested SSL.
 * Only one connection to the listen server is supported at the moment. New connections will override the previous connection. However, I may add support for multiple connections in the future when I have more time.
+* There are some code that can definitely be improved on/organized better.
 
 ## Credits
 * [Christian Deacon](https://github.com/gamemann)
