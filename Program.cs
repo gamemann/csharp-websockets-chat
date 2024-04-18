@@ -91,15 +91,26 @@ namespace Program {
 
         private static async Task ServerProcessClient(Server srv, WebSocket ws) {
             while (true) {
-                if (ws.State == WebSocketState.Open) {
-                    var msg = await srv.Recv();
+                try {
+                    if (ws.State == WebSocketState.Open) {
+                        var msg = await srv.Recv();
 
-                    // If null, indicates an issue or close. So break and reallow new clients.
-                    if (msg == null)
+                        // If null, indicates an issue or close. So break and reallow new clients.
+                        if (msg == null)
+                            break;
+
+                        // Process message.
+                        ProcessServerMsg(srv, msg);
+                    } else {
+                        Console.WriteLine($"Found connection to server '{srv.Bind.host}:{srv.Bind.port}' that isn't open. Closing current connection.");
+
                         break;
+                    }
+                } catch (Exception e) {
+                    Console.WriteLine($"Found exception when receiving reply from client on server '{srv.Bind.host}:{srv.Bind.port}'. Closing current connection.");
+                    Console.WriteLine(e);
 
-                    // Process message.
-                    ProcessServerMsg(srv, msg);
+                    break;
                 }
             }
         }
@@ -113,6 +124,15 @@ namespace Program {
                     srv.Ws = wsCtx.WebSocket;
 
                     await ServerProcessClient(srv, srv.Ws);
+
+                    // Attempt to close current web socket since we're done.
+                    try {
+                        await srv.Disconnect();
+                    } catch {}
+
+                    srv.Ws = null;
+
+                    continue;
                 } else {
                     ctx.Response.StatusCode = 500;
                     ctx.Response.Close();
