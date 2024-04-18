@@ -18,13 +18,13 @@ namespace Program {
             set => listen = value;
         }
 
-        private string listenHost = "localhost";
+        private string listenHost = "127.0.0.1";
         public string ListenHost {
             get => listenHost;
             set => listenHost = value;
         }
 
-        private ushort listenPort = 7654;
+        private ushort listenPort = 2222;
         public ushort ListenPort {
             get => listenPort;
             set => listenPort = value;
