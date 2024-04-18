@@ -57,7 +57,7 @@ A config file on the file system is read and parsed via the JSON syntax. The def
 
 Here are the config options. Please keep in mind you will need to remove the comments (`//`) if copying below. I recommend taking a look at the [conf.ex.json](./conf.ex.json) file if you want to copy the configuration without any errors.
 
-```json
+```
 {
     // Whether to activate the listen server.
     "listen": true,
