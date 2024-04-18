@@ -61,7 +61,7 @@ namespace Program.Comm {
             return msg;
         }
 
-        public async void Disconnect() {
+        public async Task Disconnect() {
             if (ws.State != WebSocketState.Open && ws.State != WebSocketState.Connecting)
                 throw new Exception("Failed to disconnect client session. Web socket is not open or connecting.");
 

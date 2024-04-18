@@ -120,13 +120,13 @@ namespace Program {
             }
         }
 
-        private static void RemoveClient(int idx) {
+        private static async Task RemoveClient(int idx) {
             try {
                 // Retrieve client at index.
                 var cl = clients[idx];
 
                 try {
-                    cl.Disconnect();
+                    await cl.Disconnect();
                 } catch (Exception e) {
                     Console.WriteLine($"Failed to disconnect client at index {idx} due to exception.");
                     Console.WriteLine(e);
@@ -148,14 +148,14 @@ namespace Program {
             }
         }
 
-        private static void RemoveServer(int idx) {
+        private static async Task RemoveServer(int idx) {
             try {
                 // Retrieve server.
                 var srv = servers[idx];
 
                 // Attempt to disconnect connection.
                 try {
-                    srv.Disconnect();
+                   await srv.Disconnect();
                 } catch (Exception e) {
                     Console.WriteLine($"Failed to disconnect server at index {idx} due to exception.");
                     Console.WriteLine(e);
@@ -310,7 +310,7 @@ namespace Program {
                     try {
                         idx = split[1];
 
-                        RemoveClient(Convert.ToInt16(idx));
+                        await RemoveClient(Convert.ToInt16(idx));
                     } catch (Exception e) {
                         Console.WriteLine($"Failed to remove client at index {idx} due to exception. Exception:\n{e}");
                     }
@@ -330,7 +330,7 @@ namespace Program {
                     try {
                         idx = split[1];
 
-                        RemoveServer(Convert.ToInt16(idx));
+                        await RemoveServer(Convert.ToInt16(idx));
                     } catch (Exception e) {
                         Console.WriteLine($"Failed to remove server at index {idx} due to exception. Exception:\n{e}");
                     }

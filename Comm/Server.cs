@@ -69,7 +69,7 @@ namespace Program.Comm {
             return null;
         }
 
-        public async void Disconnect() {
+        public async Task Disconnect() {
             if (ws == null || (ws.State != WebSocketState.Open && ws.State != WebSocketState.Connecting))
                 throw new Exception("Failed to disconnect server session. Web socket is not open or connecting.");
 
