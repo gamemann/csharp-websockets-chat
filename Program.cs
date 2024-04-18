@@ -14,8 +14,6 @@ namespace Program {
         static int curIndex = -1;
         static bool isServer = false;
 
-        static readonly List<Task> tasks = new();
-
         private static void PrintTopMenu() {
             Console.WriteLine("Commands");
             Console.WriteLine("\tls - List all server connections.");
