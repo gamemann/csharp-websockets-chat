@@ -1,80 +1,198 @@
 ﻿using Program.Comm;
+using System.Net.WebSockets;
 
 namespace Program {
     public class MainProgram {
         static readonly Cmd cmd = new();
         static readonly Config cfg = new();
 
-        static readonly List<Connection> connections = new();
+        static readonly List<Client> clients = new();
+        static readonly List<Server> servers = new();
 
         static bool exit = false;
         
-        static int curConnection = -1;
+        static int curIndex = -1;
+        static bool isServer = false;
 
+        static readonly List<Task> tasks = new();
+
+        private static void PrintTopMenu() {
+            Console.WriteLine("Commands");
+            Console.WriteLine("\tls - List all server connections.");
+            Console.WriteLine("\tlc - List all client connections.");
+            Console.WriteLine("\tnew <ip> <port> <ssl> - Establish a client connection with <ip>:<port>.");
+            Console.WriteLine("\tcc <idx> - Use client at index <idx>.");
+            Console.WriteLine("\tcs <idx> - Use server at index <idx>.");
+            Console.WriteLine("\trc <idx> - Remove client at index <idx>.");
+            Console.WriteLine("\trs <idx> - Remove server at index <idx>.");
+            Console.WriteLine("\th - Print top/help menu.");
+            Console.WriteLine("\tq - Exit program.");
+        }
+
+        /* Listing */
         private static void ListClients() {
-            for (int i = 0; i < connections.Count; i++) {
-                var conn = connections[i];
+            for (int i = 0; i < clients.Count; i++) {
+                var cl = clients[i];
 
-                if (!conn.IsClient)
-                    continue;
-
-                Console.WriteLine($"[{i}] {conn.Client?.Flow.ip ?? "N/A"}:{conn.Client?.Flow.port} => {conn.Server?.Flow.ip ?? "N/A"}:{conn.Server?.Flow.port}");
+                Console.WriteLine($"[{i}] {cl.Server.host}:{cl.Server.port} (SSL => {cl.Ssl})");
             }
         }
 
         private static void ListServers() {
-            for (int i = 0; i < connections.Count; i++) {
-                var conn = connections[i];
+            for (int i = 0; i < servers.Count; i++) {
+                var srv = servers[i];
 
-                if (conn.IsClient)
-                    continue;
-
-                Console.WriteLine($"[{i}] {conn.Client?.Flow.ip ?? "N/A"}:{conn.Client?.Flow.port} => {conn.Server?.Flow.ip ?? "N/A"}:{conn.Server?.Flow.port}");
+                Console.WriteLine($"[{i}] {srv.Bind.host ?? "N/A"}:{srv.Bind.port} (SSL => {srv.Ssl})");
             }
         }
 
-        private static void PrintTopMenu() {
-            Console.WriteLine("Commands");
-            Console.WriteLine("\tls - List active server connections.");
-            Console.WriteLine("\tlc - List active client connections.");
-            Console.WriteLine("\tc <ip> <port> <ssl> - Establish a connection with <ip>:<port>.");
-            Console.WriteLine("\tt <idx> - Use connection at index <idx>.");
-            Console.WriteLine("\tq - Exit program.");
-            Console.Write("Cmd: ");
+        /* Retrieving indexes */
+        private static int GetClientIndex(Client cl) {
+            return clients.FindIndex(c => cl == c);
         }
 
-        private static int MakeConnection(string ip, ushort port, bool client = true, bool ssl = true) {
-            // Make sure we have a valid IP.
-            if (!Utils.IsValidIpv4(ip)) {
-                Console.WriteLine($"Failed to add connection. IPv4 address '{ip}' is invalid.");
+        private static int GetServerIndex(Server srv) {
+            return servers.FindIndex(c => c == srv);
+        }
 
-                return 1;
+        /* Message processing */
+        private static void ProcessClientMsg(Client cl, string msg) {
+            var idx = GetClientIndex(cl);
+
+            if (curIndex == idx && !isServer)
+                Console.Write($"\nServer: {msg}\nMsg: ");
+        }
+
+        private static void ProcessServerMsg(Server srv, string msg) {
+            var idx = GetServerIndex(srv);
+
+            if (curIndex == idx && isServer)
+                Console.Write($"\nClient: {msg}\nMsg: ");
+        }
+
+        /* General Processing */
+        private static async void ClientProcess(Client cl) {
+            while (true) {
+                try {
+                    var msg = await cl.Recv();
+
+                    ProcessClientMsg(cl, msg);
+                } catch (Exception e) {
+                    var idx = GetClientIndex(cl);
+
+                    // Only print exception if we're active.
+                    if (curIndex == idx && !isServer)
+                        Console.WriteLine($"Failed to receive message from server due to exception. Exception:\n{e}");
+
+                    Thread.Sleep(1000);
+                }
             }
-            
-            connections.Add(new() {
-                Ssl = ssl,
-                IsClient = client,
-                Client = new() {
-                    Flow = new() {
-                        ip = client ? "127.0.0.1" : ip,
-                        port = client ? (ushort) 123 : port
-                    }
-                },
-                Server = new() {
-                    Flow = new() {
-                        ip = client ? ip : "127.0.0.1",
-                        port = client ? port : (ushort) 123
+        }
 
+        private static async Task ServerProcessClient(Server srv, WebSocket ws) {
+            while (true) {
+                if (ws.State == WebSocketState.Open) {
+                    var msg = await srv.Recv();
+
+                    // If null, indicates an issue or close. So break and reallow new clients.
+                    if (msg == null)
+                        break;
+
+                    // Process message.
+                    ProcessServerMsg(srv, msg);
+                }
+            }
+        }
+
+        private static async Task ServerProcess(Server srv) {
+            while (true) {
+                var ctx = await srv.Listener.GetContextAsync();
+
+                if (ctx.Request.IsWebSocketRequest) {
+                    var wsCtx = await ctx.AcceptWebSocketAsync(subProtocol: null);
+                    srv.Ws = wsCtx.WebSocket;
+
+                    await ServerProcessClient(srv, srv.Ws);
+                } else {
+                    ctx.Response.StatusCode = 500;
+                    ctx.Response.Close();
+                }
+            }
+        }
+
+        private static void RemoveClient(int idx) {
+            try {
+                // Retrieve client at index.
+                var cl = clients[idx];
+
+                try {
+                    cl.Disconnect();
+                } catch (Exception e) {
+                    Console.WriteLine($"Failed to disconnect client at index {idx} due to exception.");
+                    Console.WriteLine(e);
+                }
+
+                if (cl.Task != null) {
+                    try {
+                        cl.Task.Dispose();
+                    } catch (Exception e) {
+                        Console.WriteLine("Failed to stop task when disconnecting client at index {idx} due to exception.");
+                        Console.WriteLine(e);
                     }
                 }
-            });
 
-            // To Do: Retrieve connection and connect to web socket.
-
-            return 0;
+                // Remove from clients list.
+                clients.RemoveAt(idx);
+            } catch (Exception e) {
+                throw new Exception($"Failed to remove client at index #{idx} due to exception. Exception:\n{e}");
+            }
         }
 
-        private static void ParseTopLine(string line) {   
+        private static void RemoveServer(int idx) {
+            try {
+                // Retrieve server.
+                var srv = servers[idx];
+
+                // Attempt to disconnect connection.
+                try {
+                    srv.Disconnect();
+                } catch (Exception e) {
+                    Console.WriteLine($"Failed to disconnect server at index {idx} due to exception.");
+                    Console.WriteLine(e);
+                }
+
+                // Remove server from list.
+                servers.RemoveAt(idx);
+            } catch (Exception e) {
+                Console.WriteLine($"Failed to remove server at index {idx} due to exception. Exception:\n{e}");
+            }
+        }
+
+        private static async Task MakeConnection(string host, ushort port, bool ssl = true) {
+            // Make sure we have a valid IP.
+            if (!Utils.IsValidIpv4(host))
+                throw new Exception($"Failed to make connection using '{host}:{port}' due to invalid host address. SSL => {ssl}.");
+            
+            var cl = new Client() {
+                Server = new() {
+                    host = host,
+                    port = port
+                },
+                Ssl = ssl
+            };
+
+            // Attempt to connect to server.
+            try {
+                await cl.Connect();
+            } catch (Exception e) {
+                throw new Exception($"Failed to make connection using '{host}:{port}' due to connection error. SSL => {ssl}. Exception:\n{e}");
+            }
+
+            // Add clients to list.
+            clients.Add(cl);
+        }
+
+        private static async Task ParseTopLine(string line) {   
             // Get first argument.
             var split = line.Split(" ");    
 
@@ -93,9 +211,7 @@ namespace Program {
 
                     break;
 
-                case "c": {
-                    // We need to split the string.
-
+                case "new": {
                     if (split.Length < 2) {
                         Console.WriteLine("IP not set.");
 
@@ -108,34 +224,122 @@ namespace Program {
                         break;
                     }
 
-                    var ip = split[1];
-                    var port = split[2];
-
+                    var ip ="";
+                    var port = "";
                     var ssl = true;
 
-                    if (split.Length > 3) {
-                        var sslStr = split[3];
+                    try {
+                        ip = split[1];
+                        port = split[2];
 
-                        if (sslStr.ToLower() == "no")
-                            ssl = false;
+                        if (split.Length > 3) {
+                            var sslStr = split[3];
+
+                            if (sslStr.ToLower() == "no")
+                                ssl = false;
+                        }
+                    } catch (Exception e) {
+                        Console.WriteLine("Bad arguments due to exception.");
+                        Console.WriteLine(e);
                     }
 
-                    if (MakeConnection(ip, Convert.ToUInt16(port), true, ssl) == 0)
-                        Console.WriteLine($"Added connection to {ip}:{port}...");
+                    try {
+                        await MakeConnection(ip, Convert.ToUInt16(port), ssl);
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to make connection to '{ip ?? "N/A"}:{port}' due to exception. Exception:\n{e}");
+                    }
 
                     break;
                 }
 
-                case "t":
+                case "cc": {
                     if (split.Length < 2) {
                         Console.WriteLine("No index set.");
 
                         break;
                     }
 
-                    var idx = split[1];
+                    var idx = "";
 
-                    curConnection = Convert.ToInt16(idx);
+                    try {
+                        idx = split[1];
+
+                        curIndex = Convert.ToInt16(idx);
+                        isServer = false;
+
+                        Console.WriteLine($"Connecting to client at index {curIndex}...");
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to switch to client {idx} due to exception. Exception:\n{e}");
+                    } 
+
+                    break;
+                }
+
+                case "cs": {
+                    if (split.Length < 2) {
+                        Console.WriteLine("No index set.");
+
+                        break;
+                    }
+
+                    var idx = "";
+
+                    try {
+                        idx = split[1];
+
+                        curIndex = Convert.ToInt16(idx);
+                        isServer = true;
+
+                        Console.WriteLine($"Connecting to server at index {curIndex}...");
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to switch to server {idx} due to exception. Exception:\n{e}");
+                    }
+
+                    break;
+                }
+
+                case "rc": {
+                    if (split.Length < 2) {
+                        Console.WriteLine("No index set.");
+
+                        break;
+                    }
+
+                    var idx = "";
+
+                    try {
+                        idx = split[1];
+
+                        RemoveClient(Convert.ToInt16(idx));
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to remove client at index {idx} due to exception. Exception:\n{e}");
+                    }
+
+                    break;
+                }
+
+                case "rs": {
+                    if (split.Length < 2) {
+                        Console.WriteLine("No index set.");
+
+                        break;
+                    }
+
+                    var idx = "";
+
+                    try {
+                        idx = split[1];
+
+                        RemoveServer(Convert.ToInt16(idx));
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to remove server at index {idx} due to exception. Exception:\n{e}");
+                    }
+
+                    break;
+                }
+
+                case "h":
+                    PrintTopMenu();
 
                     break;
 
@@ -148,6 +352,118 @@ namespace Program {
                     PrintTopMenu();
                     
                     break;
+            }
+        }
+
+        private static async Task HandleMessage(string msg) {
+            // If we're receiving a quit message, reset.
+            if (msg == "\\q") {
+                curIndex = -1;
+
+                return;
+            }
+
+            try {
+                if (isServer) {
+                    // Attempt to retrieve current server.
+                    var srv = servers[curIndex];
+
+                    // Send the message to the client.
+                    try {
+                        await srv.Send(msg);
+                    } catch (Exception e) {
+                        throw new Exception($"Failed to send message to client due to exception. Exception:\n{e}");
+                    }
+                } else {
+                    // Attempt to retrieve current client.
+                    var cl = clients[curIndex];
+
+                    // Attempt to send message to server.
+                    try {
+                        await cl.Send(msg);
+                    } catch (Exception e) {
+                        throw new Exception($"Failed to send message to server due to exception. Exception:\n{e}");
+                    }
+                }
+            } catch (Exception e) {
+                var oldConn = curIndex;
+
+                curIndex = -1;
+
+                throw new Exception($"Failed to handle message for current connection #{oldConn} due to exception. Is server => {isServer}. Exception:\n{e}");
+            }
+        }
+
+        private static void HandleAllIncoming() {
+            while (true) {
+                foreach (var cl in clients) {
+                    if (cl.Task != null)
+                        continue;
+
+                    try {
+                        cl.Task = Task.Factory.StartNew(() => ClientProcess(cl));
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to process client '{cl.Server.host}:{cl.Server.port}' due to exception.");
+                        Console.WriteLine(e);
+                    }
+                }
+
+                Thread.Sleep(1000);
+            }
+        }
+
+        private static async Task StartupConnections() {
+            foreach (var conn in cfg.StartupConnections) {
+                try {
+                    await MakeConnection(conn.srv.host, conn.srv.port, conn.ssl);
+                } catch (Exception e) {
+                    Console.WriteLine($"Failed to start up connection '{conn.srv.host}:{conn.srv.port}' (SSL => {conn.ssl}) due to exception.");
+                    Console.WriteLine(e);
+                }
+            }
+        }
+
+        private static async Task HandleListenServer() {
+            var ssl = cfg.ListenSsl;
+            var host = cfg.ListenHost;
+            var port = cfg.ListenPort;
+
+            // Check for command line overrides.
+            if (cmd.Opts.Ssl.HasValue)
+                ssl = cmd.Opts.Ssl.Value;
+
+            if (cmd.Opts.Host != null)
+                host = cmd.Opts.Host;
+
+            if (cmd.Opts.Port.HasValue)
+                port = (ushort) cmd.Opts.Port.Value;
+
+            servers.Add(new() {
+                Ssl = ssl,
+                Bind = new() {
+                    host = host,
+                    port = port
+                }
+            });
+
+            var srv = servers[^1];
+
+            // Attempt to listen.
+            try {
+                srv.Listen();
+            } catch (Exception e) {
+                Console.WriteLine($"Failed to listen on '{host}:{port}' due to exception.");
+                Console.WriteLine(e);
+
+                return;
+            }
+
+            // Attempt to process server messages.
+            try {
+                await ServerProcess(srv);
+            } catch (Exception e) {
+                Console.WriteLine($"Failed to proces server '{host}:{port}' due to exception.");
+                Console.WriteLine(e);
             }
         }
 
@@ -164,18 +480,13 @@ namespace Program {
 
             // Parse config.
             try {
-                if (cmd.Opts.Cfg == null) {
+                if (cmd.Opts.Cfg == null)
                     Console.WriteLine("Config path somehow null?");
-
-                    return 1;
-                }
-
-                cfg.Load(cmd.Opts.Cfg);
+                else
+                    cfg.Load(cmd.Opts.Cfg);
             } catch (Exception e) {
                 Console.WriteLine("Failed to load and read config file due to exception.");
                 Console.WriteLine(e);
-
-                return 1;
             }
 
             // Check if we should print config and exit.
@@ -185,39 +496,82 @@ namespace Program {
                 return 0;
             }
 
-            // To Do: Connect to servers in config.
+            // Connect to startup servers from config.
+            try {
+                await StartupConnections();
+            } catch (Exception e) {
+                Console.WriteLine("Failed to start initial server connections due to exception.");
+                Console.WriteLine(e);
+            }
+
+            // We'll want to spin up a new task to handle adding client connections.
+            #pragma warning disable CS4014
+            Task.Factory.StartNew(() => HandleAllIncoming());
+            #pragma warning restore CS4014
+
+            // Spin up another task for listen server if enabled.
+            var listen = cfg.Listen;
+
+            if (cmd.Opts.NoListen)
+                listen = false;
+
+            if (listen) {
+                Console.WriteLine($"Attempting to listen on '{cfg.ListenHost}:{cfg.ListenPort}'...");
+
+                #pragma warning disable CS4014
+                Task.Factory.StartNew(() => HandleListenServer());
+                #pragma warning restore CS4014
+            }
 
             // Print top menu now.
             PrintTopMenu();
 
             while (!exit) {
                 // Check our current connection.
-                if (curConnection == -1) {
+                if (curIndex == -1) {
+                    Console.Write("Cmd: ");
                     try {
                         var input = Console.ReadLine();
 
                         if (input != null)
-                            ParseTopLine(input);
+                            await ParseTopLine(input);
 
                     } catch (Exception e) {
-                        Console.WriteLine("Failed to read line.");
+                        Console.WriteLine("Failed to read user input due to exception.");
                         Console.WriteLine(e);
 
                         return 1;
                     }
                 } else {
-                    Console.WriteLine($"Connecting to connection at index {curConnection}...");
-                    
                     try {
-                        var conn = connections[curConnection];
-
-                        Console.WriteLine($"Client: {(conn.IsClient ? "Yes" : "No")}...");
-                        Console.WriteLine($"Connection: '{conn.Client?.Flow.ip ?? "N/A"}:{conn.Client?.Flow.port}' => '{conn.Server?.Flow.ip ?? "N/A"}:{conn.Server?.Flow.port}'...");
+                        // Note to self; PLEASE IMPROVE THE BELOW IN THE FUTURE. IT'S BAD!
+                        if (isServer) {
+                            var srv = servers[curIndex];
+                        }
+                        else {
+                            var cl = clients[curIndex];
+                        }
                     } catch (Exception e) {
-                        Console.WriteLine($"Failed to connect to connection at index {curConnection}");
+                        Console.WriteLine($"Failed to connect to {(isServer ? "server" : "client")} at index {curIndex}");
                         Console.WriteLine(e);
 
-                        curConnection = -1;
+                        curIndex = -1;
+
+                        continue;
+                    }
+
+                    Console.Write("Msg: ");
+
+                    try {
+                        var input = Console.ReadLine();
+
+                        if (input != null)
+                            await HandleMessage(input);
+                    } catch (Exception e) {
+                        Console.WriteLine($"Failed to handle message due to exception.");
+                        Console.WriteLine(e);
+
+                        continue;
                     }
                 }
             }

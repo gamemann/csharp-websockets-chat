@@ -1,11 +1,8 @@
-namespace Program.Comm {
-    public struct Data {
-        public string type;
-        public dynamic data;
-    }
+using System.Text.Json.Serialization;
 
+namespace Program.Comm {
     public struct Flow {
-        public string ip;
+        public string host;
         public ushort port;
     }
 }
